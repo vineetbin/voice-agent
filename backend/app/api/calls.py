@@ -156,19 +156,21 @@ async def trigger_call(
     
     For web calls, returns an access_token for the Retell Web SDK.
     """
-    # 1. Get active config for the scenario
+    # 1. Get the single active configuration (unified config handles both scenarios)
     config_response = db.table("agent_configs").select("*").eq(
-        "scenario_type", request.scenario_type.value
-    ).eq("is_active", True).limit(1).execute()
+        "is_active", True
+    ).limit(1).execute()
     
     if not config_response.data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No active configuration found for scenario: {request.scenario_type.value}. "
-                   "Please activate a configuration first."
+            detail="No active configuration found. Please activate a configuration in the Configuration page first."
         )
     
     config = config_response.data[0]
+    
+    # Derive scenario_type from the active config (not from request)
+    scenario_type = ScenarioType(config.get("scenario_type", ScenarioType.DISPATCH_CHECKIN.value))
     
     # 2. Update Retell agent with config's prompt and settings (partial update)
     # Only updates the specific fields we manage, preserving other Retell settings
@@ -220,7 +222,7 @@ async def trigger_call(
         
         metadata = {
             "internal_call_id": internal_call_id,
-            "scenario_type": request.scenario_type.value,
+            "scenario_type": scenario_type.value,  # Use scenario_type from active config
         }
         
         access_token = None

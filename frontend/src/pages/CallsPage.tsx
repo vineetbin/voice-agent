@@ -24,6 +24,7 @@ import {
   PhoneOff,
   Mic,
   MicOff,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Card,
@@ -37,7 +38,7 @@ import {
 import { useTriggerCall, useCall, useRecentCalls } from '@/hooks/useCalls';
 import { useConfigs } from '@/hooks/useConfigs';
 import { useRetellWebCall } from '@/hooks/useRetellWebCall';
-import type { ScenarioType, CallType, CallTriggerResponse, CallWithDetails } from '@/types';
+import type { CallType, CallTriggerResponse, CallWithDetails } from '@/types';
 
 // =============================================================================
 // Call Trigger Form
@@ -47,7 +48,6 @@ interface TriggerFormData {
   driverName: string;
   phoneNumber: string;
   loadNumber: string;
-  scenarioType: ScenarioType;
   callType: CallType;
 }
 
@@ -56,7 +56,6 @@ export function CallsPage() {
     driverName: '',
     phoneNumber: '',
     loadNumber: '',
-    scenarioType: 'dispatch_checkin',
     callType: 'web', // Default to web for non-USA testing
   });
   
@@ -74,13 +73,8 @@ export function CallsPage() {
   // Web call hook for browser-based calling
   const { state: webCallState, startCall: startWebCall, endCall: endWebCall, toggleMute } = useRetellWebCall();
   
-  // Check if we have active configs for each scenario
-  const hasDispatchConfig = configs?.some(
-    (c) => c.scenario_type === 'dispatch_checkin' && c.is_active
-  );
-  const hasEmergencyConfig = configs?.some(
-    (c) => c.scenario_type === 'emergency' && c.is_active
-  );
+  // Check if we have an active config (unified config handles both scenarios)
+  const hasActiveConfig = configs?.some((c) => c.is_active);
   
   // Auto-start web call when we get an access token
   useEffect(() => {
@@ -95,7 +89,7 @@ export function CallsPage() {
         driver_name: formData.driverName,
         phone_number: formData.callType === 'phone' ? formData.phoneNumber : undefined,
         load_number: formData.loadNumber,
-        scenario_type: formData.scenarioType,
+        // scenario_type is optional - backend derives it from active config
         call_type: formData.callType,
       });
       
@@ -118,7 +112,7 @@ export function CallsPage() {
     formData.driverName.trim() && 
     formData.loadNumber.trim() &&
     (formData.callType === 'web' || formData.phoneNumber.trim()) &&
-    (formData.scenarioType === 'dispatch_checkin' ? hasDispatchConfig : hasEmergencyConfig) &&
+    hasActiveConfig &&
     !isWebCallActive;
   
   const getStatusBadge = (status: string) => {
@@ -158,41 +152,6 @@ export function CallsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Scenario Type */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Scenario Type
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setFormData({ ...formData, scenarioType: 'dispatch_checkin' })}
-                    className={`flex-1 p-3 rounded-lg border-2 transition-all text-sm ${
-                      formData.scenarioType === 'dispatch_checkin'
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="font-medium">Dispatch Check-In</div>
-                    {!hasDispatchConfig && (
-                      <div className="text-xs text-amber-600 mt-1">No active config</div>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setFormData({ ...formData, scenarioType: 'emergency' })}
-                    className={`flex-1 p-3 rounded-lg border-2 transition-all text-sm ${
-                      formData.scenarioType === 'emergency'
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="font-medium">Emergency</div>
-                    {!hasEmergencyConfig && (
-                      <div className="text-xs text-amber-600 mt-1">No active config</div>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
               {/* Call Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -256,6 +215,13 @@ export function CallsPage() {
                 value={formData.loadNumber}
                 onChange={(e) => setFormData({ ...formData, loadNumber: e.target.value })}
               />
+              
+              {!hasActiveConfig && (
+                <div className="p-3 bg-amber-50 rounded-lg text-sm text-amber-800">
+                  <AlertCircle className="h-4 w-4 inline mr-2" />
+                  No active configuration. Please activate a configuration in the Configuration page first.
+                </div>
+              )}
             </CardContent>
             <CardFooter>
               <Button

@@ -82,13 +82,11 @@ async def create_config(
     """
     Create a new agent configuration.
     
-    If is_active is True, this will deactivate other configs of the same scenario_type.
+    If is_active is True, this will deactivate all other configs (only one active config allowed).
     """
-    # If this config should be active, deactivate others of same scenario type
+    # If this config should be active, deactivate all other configs (only one active config allowed)
     if config.is_active:
-        db.table(TABLE_NAME).update({"is_active": False}).eq(
-            "scenario_type", config.scenario_type.value
-        ).execute()
+        db.table(TABLE_NAME).update({"is_active": False}).execute()
     
     response = db.table(TABLE_NAME).insert(config.model_dump(mode="json")).execute()
     
@@ -112,7 +110,7 @@ async def update_config(
     Update an existing agent configuration.
     
     Only provided fields will be updated.
-    If is_active is set to True, other configs of same scenario_type are deactivated.
+    If is_active is set to True, all other configs are deactivated (only one active config allowed).
     If the config is active, changes are also pushed to Retell.
     """
     # Check if config exists
@@ -132,12 +130,9 @@ async def update_config(
         # Nothing to update, return existing
         return existing_config
     
-    # If activating, deactivate others of same scenario type
+    # If activating, deactivate ALL other configs (only one active config allowed)
     if config.is_active:
-        scenario = config.scenario_type or existing_config.get("scenario_type")
-        db.table(TABLE_NAME).update({"is_active": False}).eq(
-            "scenario_type", scenario
-        ).neq("id", str(config_id)).execute()
+        db.table(TABLE_NAME).update({"is_active": False}).neq("id", str(config_id)).execute()
     
     response = db.table(TABLE_NAME).update(update_data).eq("id", str(config_id)).execute()
     
@@ -238,13 +233,9 @@ async def patch_config(
         # Nothing to update, return existing
         return existing_config
     
-    # If activating, deactivate others of same scenario type
-    is_being_activated = config.is_active and not existing_config.get("is_active")
+    # If activating, deactivate ALL other configs (only one active config allowed)
     if config.is_active:
-        scenario = config.scenario_type or existing_config.get("scenario_type")
-        db.table(TABLE_NAME).update({"is_active": False}).eq(
-            "scenario_type", scenario
-        ).neq("id", str(config_id)).execute()
+        db.table(TABLE_NAME).update({"is_active": False}).neq("id", str(config_id)).execute()
     
     response = db.table(TABLE_NAME).update(update_data).eq("id", str(config_id)).execute()
     
@@ -299,21 +290,37 @@ async def get_retell_config(
 
 @router.post("/retell/sync", response_model=AgentConfig)
 async def sync_from_retell(
-    scenario_type: ScenarioType = Query(..., description="Scenario to create/update config for"),
+    scenario_type: Optional[ScenarioType] = Query(None, description="Optional scenario type (uses active config's scenario_type if not provided)"),
     db: Client = Depends(get_db),
     retell: RetellService = Depends(get_retell_service),
 ) -> AgentConfig:
     """
     Sync configuration FROM Retell AI to local database.
     
-    Fetches current Retell agent settings and creates/updates a local config.
+    Fetches current Retell agent settings and creates/updates a local unified config.
     This is useful when you've configured the agent directly in Retell's dashboard.
+    
+    The unified config handles both dispatch check-in and emergency scenarios.
     """
     try:
         # Get current Retell config
         retell_config = retell.get_agent_config()
         
-        # Check if we have an existing config for this scenario
+        # Determine scenario_type: use provided value, or get from active config, or use first enum value
+        if not scenario_type:
+            active_config_response = db.table(TABLE_NAME).select("scenario_type").eq("is_active", True).limit(1).execute()
+            if active_config_response.data:
+                scenario_type_str = active_config_response.data[0].get("scenario_type")
+                try:
+                    scenario_type = ScenarioType(scenario_type_str)
+                except ValueError:
+                    logger.warning(f"Invalid scenario_type {scenario_type_str} in active config, using first enum value")
+                    scenario_type = ScenarioType.DISPATCH_CHECKIN
+            else:
+                # No active config, use first enum value
+                scenario_type = ScenarioType.DISPATCH_CHECKIN
+        
+        # Check if we have an existing config with this scenario_type
         existing = db.table(TABLE_NAME).select("*").eq(
             "scenario_type", scenario_type.value
         ).limit(1).execute()
@@ -334,17 +341,13 @@ async def sync_from_retell(
             # Update existing config
             config_id = existing.data[0]["id"]
             
-            # Deactivate others first
-            db.table(TABLE_NAME).update({"is_active": False}).eq(
-                "scenario_type", scenario_type.value
-            ).neq("id", config_id).execute()
+            # Deactivate all others first (only one active config allowed)
+            db.table(TABLE_NAME).update({"is_active": False}).neq("id", config_id).execute()
             
             response = db.table(TABLE_NAME).update(config_data).eq("id", config_id).execute()
         else:
-            # Deactivate others first
-            db.table(TABLE_NAME).update({"is_active": False}).eq(
-                "scenario_type", scenario_type.value
-            ).execute()
+            # Deactivate all others first (only one active config allowed)
+            db.table(TABLE_NAME).update({"is_active": False}).execute()
             
             # Create new config
             response = db.table(TABLE_NAME).insert(config_data).execute()

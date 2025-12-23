@@ -1,26 +1,19 @@
 /**
  * Agent Configuration Page
  * 
- * Allows administrators to:
- * - Select scenario type (Dispatch Check-In, Emergency)
- * - Edit system prompts and initial messages
- * - Configure Retell AI settings (Task A requirements)
- * - Load preset templates
- * - Save and activate configurations
+ * Single unified configuration that handles both dispatch check-in and emergency scenarios.
+ * The agent automatically handles both flows based on the conversation context.
  * 
  * Sync behavior:
- * - On load: Compares DB config with Retell, updates DB if Retell has changes
- * - On save (active config): Updates both DB and Retell
+ * - On load: Loads the single active configuration
+ * - On save: Updates both DB and Retell
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { 
-  Settings, 
   Save, 
-  Play, 
   FileText, 
   Sparkles,
-  ChevronDown,
   Check,
   AlertCircle,
   RefreshCw,
@@ -41,26 +34,17 @@ import {
   useConfigs, 
   useCreateConfig, 
   useUpdateConfig, 
-  useActivateConfig,
   useRetellConfig,
 } from '@/hooks/useConfigs';
 import { configsApi } from '@/services/api';
-import { getTemplatesForScenario } from '@/services/templates';
-import type { AgentConfigCreate, ScenarioType, PromptTemplate } from '@/types';
-
-// Scenario options
-const SCENARIO_OPTIONS = [
-  { value: 'dispatch_checkin', label: 'Dispatch Check-In' },
-  { value: 'emergency', label: 'Emergency Protocol' },
-];
+import type { AgentConfigCreate } from '@/types';
 
 export function ConfigurationPage() {
-  // Form state
-  const [selectedScenario, setSelectedScenario] = useState<ScenarioType>('dispatch_checkin');
+  // Form state - single unified config (uses dispatch_checkin internally)
   const [formData, setFormData] = useState<AgentConfigCreate>({
     name: '',
     description: '',
-    scenario_type: 'dispatch_checkin',
+    scenario_type: 'dispatch_checkin', // Internal default, not shown in UI
     system_prompt: '',
     initial_message: '',
     enable_backchanneling: true,
@@ -68,27 +52,19 @@ export function ConfigurationPage() {
     interruption_sensitivity: 0.5,
     is_active: false,
   });
-  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
-  const [showTemplates, setShowTemplates] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'synced' | 'error'>('idle');
 
   // API hooks
-  const { data: configs, isLoading: loadingConfigs, refetch: refetchConfigs } = useConfigs();
+  const { data: configs, refetch: refetchConfigs } = useConfigs();
   const createMutation = useCreateConfig();
   const updateMutation = useUpdateConfig();
-  const activateMutation = useActivateConfig();
   
   // Retell config (for display and sync check)
   const { data: retellConfig, isLoading: loadingRetell, refetch: refetchRetell } = useRetellConfig();
 
-  // Get configs for current scenario
-  const scenarioConfigs = configs?.filter((c) => c.scenario_type === selectedScenario) || [];
-  const activeConfig = scenarioConfigs.find((c) => c.is_active);
-
-  // Get templates for current scenario
-  const availableTemplates = getTemplatesForScenario(selectedScenario);
+  // Get the single active config
+  const activeConfig = configs?.find((c) => c.is_active);
 
   // Check if form has unsaved changes compared to Retell
   const hasRetellDiff = retellConfig && activeConfig && (
@@ -98,14 +74,15 @@ export function ConfigurationPage() {
     Math.abs(retellConfig.interruption_sensitivity - activeConfig.interruption_sensitivity) > 0.01
   );
 
-  // Sync from Retell - updates the active config in DB with Retell's current values
+  // Sync from Retell - updates/creates the unified config with Retell's current values
   const handleSyncFromRetell = useCallback(async () => {
     if (!retellConfig) return;
     
     setIsSyncing(true);
     try {
-      // Sync and get the updated config
-      const synced = await configsApi.syncFromRetell(selectedScenario);
+      // Use scenario_type from active config, or default to first available
+      const syncScenarioType = activeConfig?.scenario_type || 'dispatch_checkin';
+      const synced = await configsApi.syncFromRetell(syncScenarioType);
       
       // Load into form
       setFormData({
@@ -119,94 +96,46 @@ export function ConfigurationPage() {
         interruption_sensitivity: synced.interruption_sensitivity,
         is_active: synced.is_active,
       });
-      setSelectedConfigId(synced.id);
       
       // Refetch configs
       await refetchConfigs();
-      setSyncStatus('synced');
-      setTimeout(() => setSyncStatus('idle'), 3000);
     } catch (error) {
       console.error('Failed to sync from Retell:', error);
-      setSyncStatus('error');
     } finally {
       setIsSyncing(false);
     }
-  }, [retellConfig, selectedScenario, refetchConfigs]);
+  }, [retellConfig, refetchConfigs]);
 
-  // Auto-sync on load if there's a difference between Retell and active config
+  // Load active config into form on mount
   useEffect(() => {
-    if (hasRetellDiff && !isSyncing && syncStatus === 'idle') {
-      // There's a diff - show indicator but don't auto-sync (let user decide)
+    if (activeConfig) {
+      setFormData({
+        name: activeConfig.name,
+        description: activeConfig.description || '',
+        scenario_type: activeConfig.scenario_type,
+        system_prompt: activeConfig.system_prompt,
+        initial_message: activeConfig.initial_message || '',
+        enable_backchanneling: activeConfig.enable_backchanneling,
+        enable_filler_words: activeConfig.enable_filler_words,
+        interruption_sensitivity: activeConfig.interruption_sensitivity,
+        is_active: activeConfig.is_active,
+      });
     }
-  }, [hasRetellDiff, isSyncing, syncStatus]);
+  }, [activeConfig]);
 
-  // Load config into form when selected
-  useEffect(() => {
-    if (selectedConfigId) {
-      const config = configs?.find((c) => c.id === selectedConfigId);
-      if (config) {
-        setFormData({
-          name: config.name,
-          description: config.description || '',
-          scenario_type: config.scenario_type,
-          system_prompt: config.system_prompt,
-          initial_message: config.initial_message || '',
-          enable_backchanneling: config.enable_backchanneling,
-          enable_filler_words: config.enable_filler_words,
-          interruption_sensitivity: config.interruption_sensitivity,
-          is_active: config.is_active,
-        });
-      }
-    }
-  }, [selectedConfigId, configs]);
 
-  // Load active config when scenario changes
-  useEffect(() => {
-    if (activeConfig && !selectedConfigId) {
-      setSelectedConfigId(activeConfig.id);
-    }
-  }, [activeConfig, selectedConfigId]);
-
-  // Handle scenario change
-  const handleScenarioChange = (scenario: ScenarioType) => {
-    setSelectedScenario(scenario);
-    setSelectedConfigId(null);
-    setFormData((prev) => ({
-      ...prev,
-      scenario_type: scenario,
-      name: '',
-      description: '',
-      system_prompt: '',
-      initial_message: '',
-    }));
-  };
-
-  // Load a template
-  const handleLoadTemplate = (template: PromptTemplate) => {
-    setFormData((prev) => ({
-      ...prev,
-      name: template.name,
-      description: template.description,
-      system_prompt: template.system_prompt,
-      initial_message: template.initial_message,
-    }));
-    setShowTemplates(false);
-    setSelectedConfigId(null);
-  };
 
   // Save configuration (saves to DB, and if active, also pushes to Retell)
   const handleSave = async () => {
     try {
-      let savedConfig;
-      
-      if (selectedConfigId) {
-        savedConfig = await updateMutation.mutateAsync({
-          id: selectedConfigId,
+      if (activeConfig) {
+        await updateMutation.mutateAsync({
+          id: activeConfig.id,
           data: formData,
         });
       } else {
-        savedConfig = await createMutation.mutateAsync(formData);
-        setSelectedConfigId(savedConfig.id);
+        const newConfig = { ...formData, is_active: true };
+        await createMutation.mutateAsync(newConfig);
       }
       
       setSaveSuccess(true);
@@ -220,17 +149,7 @@ export function ConfigurationPage() {
     }
   };
 
-  // Activate configuration (marks as active in DB and pushes to Retell)
-  const handleActivate = async () => {
-    if (selectedConfigId) {
-      await activateMutation.mutateAsync(selectedConfigId);
-      await refetchConfigs();
-      await refetchRetell();
-    }
-  };
-
   const isLoading = createMutation.isPending || updateMutation.isPending;
-  const isActivating = activateMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -239,7 +158,7 @@ export function ConfigurationPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Agent Configuration</h1>
           <p className="text-slate-600 mt-1">
-            Configure prompts and voice settings for your AI agent
+            Configure prompts and voice settings. The agent handles both dispatch check-in and emergency scenarios automatically.
           </p>
         </div>
         
@@ -281,88 +200,18 @@ export function ConfigurationPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Configuration Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Scenario Selection */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Settings className="h-5 w-5 text-slate-600" />
-                <h2 className="text-lg font-semibold text-slate-900">Scenario Type</h2>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-4">
-                {SCENARIO_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => handleScenarioChange(option.value as ScenarioType)}
-                    className={`flex-1 p-4 rounded-lg border-2 transition-all ${
-                      selectedScenario === option.value
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="text-left">
-                      <div className={`font-medium ${
-                        selectedScenario === option.value ? 'text-indigo-900' : 'text-slate-900'
-                      }`}>
-                        {option.label}
-                      </div>
-                      <div className="text-sm text-slate-500 mt-1">
-                        {option.value === 'dispatch_checkin' 
-                          ? 'Driver status updates and ETA collection'
-                          : 'Handle emergencies and escalate to humans'
-                        }
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Prompt Configuration */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-slate-600" />
-                  <h2 className="text-lg font-semibold text-slate-900">Prompt Configuration</h2>
-                </div>
-                <div className="relative">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowTemplates(!showTemplates)}
-                    rightIcon={<ChevronDown className="h-4 w-4" />}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    Load Template
-                  </Button>
-                  
-                  {/* Templates Dropdown */}
-                  {showTemplates && (
-                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-10">
-                      <div className="p-2">
-                        {availableTemplates.map((template) => (
-                          <button
-                            key={template.id}
-                            onClick={() => handleLoadTemplate(template)}
-                            className="w-full p-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
-                          >
-                            <div className="font-medium text-slate-900">{template.name}</div>
-                            <div className="text-sm text-slate-500">{template.description}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-slate-600" />
+                <h2 className="text-lg font-semibold text-slate-900">Prompt Configuration</h2>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <Input
                 label="Configuration Name"
-                placeholder="e.g., Dispatch Check-In v2"
+                placeholder="e.g., Unified Agent Configuration"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
@@ -376,11 +225,11 @@ export function ConfigurationPage() {
               
               <Textarea
                 label="System Prompt"
-                placeholder="Enter the system prompt that defines the agent's behavior..."
-                rows={12}
+                placeholder="Enter the system prompt that defines the agent's behavior for both dispatch check-in and emergency scenarios..."
+                rows={14}
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                hint="This prompt guides the agent's conversation style and objectives"
+                hint="This prompt should handle both normal check-ins and emergency situations. The agent will automatically pivot based on the conversation context."
               />
               
               <Textarea
@@ -475,31 +324,19 @@ export function ConfigurationPage() {
             <CardContent className="space-y-3">
               <Button
                 className="w-full"
-                variant="outline"
+                variant="primary"
                 onClick={handleSave}
                 isLoading={isLoading}
                 leftIcon={saveSuccess ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               >
-                {saveSuccess ? 'Saved!' : (selectedConfigId ? 'Update Configuration' : 'Save Configuration')}
+                {saveSuccess ? 'Saved!' : 'Save & Sync to Retell'}
               </Button>
-              
-              {selectedConfigId && !formData.is_active && (
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  onClick={handleActivate}
-                  isLoading={isActivating}
-                  leftIcon={<Play className="h-4 w-4" />}
-                >
-                  Activate & Push to Retell
-                </Button>
-              )}
               
               {formData.is_active && (
                 <div className="p-3 bg-green-50 rounded-lg text-sm text-green-800">
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4" />
-                    <span className="font-medium">Currently Active</span>
+                    <span className="font-medium">Active Configuration</span>
                   </div>
                   <p className="text-xs mt-1">
                     Changes will be pushed to Retell when you save.
@@ -509,56 +346,17 @@ export function ConfigurationPage() {
             </CardContent>
           </Card>
 
-          {/* Existing Configs */}
-          <Card>
-            <CardHeader>
-              <h3 className="font-semibold text-slate-900">Saved Configurations</h3>
-            </CardHeader>
-            <CardContent>
-              {loadingConfigs ? (
-                <div className="text-sm text-slate-500">Loading...</div>
-              ) : scenarioConfigs.length === 0 ? (
-                <div className="text-sm text-slate-500 text-center py-4">
-                  No configurations saved for this scenario yet.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {scenarioConfigs.map((config) => (
-                    <button
-                      key={config.id}
-                      onClick={() => setSelectedConfigId(config.id)}
-                      className={`w-full p-3 text-left rounded-lg transition-colors ${
-                        selectedConfigId === config.id
-                          ? 'bg-indigo-50 border border-indigo-200'
-                          : 'hover:bg-slate-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-slate-900">{config.name}</span>
-                        {config.is_active && (
-                          <Badge variant="success" size="sm">Active</Badge>
-                        )}
-                      </div>
-                      {config.description && (
-                        <div className="text-sm text-slate-500 mt-1 truncate">
-                          {config.description}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Active Configuration Info */}
+          {/* Active Config Info */}
           {activeConfig && (
             <Card variant="bordered">
               <CardContent>
-                <div className="text-sm text-slate-600">Currently Active</div>
-                <div className="font-medium text-slate-900 mt-1">{activeConfig.name}</div>
-                <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
-                  <span>Updated {new Date(activeConfig.updated_at).toLocaleDateString()}</span>
+                <div className="text-sm text-slate-600 mb-2">Active Configuration</div>
+                <div className="font-medium text-slate-900 text-lg">{activeConfig.name}</div>
+                {activeConfig.description && (
+                  <div className="text-sm text-slate-600 mt-2">{activeConfig.description}</div>
+                )}
+                <div className="flex items-center gap-2 mt-3 text-xs text-slate-500">
+                  <span>Last updated {new Date(activeConfig.updated_at).toLocaleDateString()}</span>
                 </div>
               </CardContent>
             </Card>

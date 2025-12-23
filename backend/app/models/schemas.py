@@ -253,7 +253,7 @@ class CallTriggerRequest(BaseModel):
     driver_name: str = Field(..., min_length=1, max_length=255, description="Driver's name")
     phone_number: Optional[str] = Field(None, max_length=50, description="Phone number (E.164 format)")
     load_number: str = Field(..., min_length=1, max_length=100, description="Load reference number")
-    scenario_type: ScenarioType = Field(..., description="Which scenario to use")
+    scenario_type: Optional[ScenarioType] = Field(None, description="Optional scenario type (derived from active config if not provided)")
     call_type: CallType = Field(default=CallType.WEB, description="Phone or web call")
 
 

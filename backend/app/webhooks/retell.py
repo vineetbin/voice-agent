@@ -229,8 +229,8 @@ async def handle_call_analyzed(
     call_id = call["id"]
     agent_config_id = call.get("agent_config_id")
     
-    # Determine scenario_type from agent_config
-    scenario_type = ScenarioType.DISPATCH_CHECKIN  # Default fallback
+    # Determine scenario_type from agent_config (no hardcoded defaults)
+    scenario_type = None
     if agent_config_id:
         config_response = db.table("agent_configs").select("scenario_type").eq(
             "id", agent_config_id
@@ -240,7 +240,15 @@ async def handle_call_analyzed(
             try:
                 scenario_type = ScenarioType(scenario_type_str)
             except ValueError:
-                logger.warning(f"Unknown scenario_type {scenario_type_str}, defaulting to dispatch_checkin")
+                logger.error(f"Unknown scenario_type {scenario_type_str} for agent_config {agent_config_id}")
+    
+    if not scenario_type:
+        logger.error(f"No valid scenario_type found for call {call_id} (agent_config_id: {agent_config_id}). Cannot process transcript.")
+        return {
+            "status": "error",
+            "call_id": payload.call_id,
+            "message": "Missing or invalid scenario_type for post-processing"
+        }
     
     # Store analysis data if provided by Retell
     if payload.call_analysis:

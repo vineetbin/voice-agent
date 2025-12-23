@@ -23,12 +23,8 @@ import { useConfigs } from '@/hooks/useConfigs';
 export function DashboardPage() {
   const { data: configs, isLoading } = useConfigs();
 
-  const activeDispatch = configs?.find(
-    (c) => c.scenario_type === 'dispatch_checkin' && c.is_active
-  );
-  const activeEmergency = configs?.find(
-    (c) => c.scenario_type === 'emergency' && c.is_active
-  );
+  // Get the single active unified configuration
+  const activeConfig = configs?.find((c) => c.is_active);
 
   return (
     <div className="space-y-8">
@@ -92,97 +88,67 @@ export function DashboardPage() {
         </Link>
       </div>
 
-      {/* Active Configurations */}
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">Active Configurations</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Dispatch Check-In */}
-          <Card variant="bordered">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-600">Dispatch Check-In</span>
-                {activeDispatch ? (
-                  <Badge variant="success">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Active
-                  </Badge>
-                ) : (
-                  <Badge variant="warning">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Not Configured
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {activeDispatch ? (
-                <div>
-                  <div className="font-medium text-slate-900">{activeDispatch.name}</div>
-                  <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                    {activeDispatch.description || 'No description'}
-                  </p>
-                  <div className="flex items-center gap-4 mt-4 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Updated {new Date(activeDispatch.updated_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-slate-500 mb-4">No active configuration</p>
-                  <Link to="/config">
-                    <Button variant="outline" size="sm">Configure Now</Button>
-                  </Link>
-                </div>
+      {/* Active Configuration */}
+      <Card variant="bordered">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Active Configuration</h2>
+            {activeConfig ? (
+              <Badge variant="success">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Active
+              </Badge>
+            ) : (
+              <Badge variant="warning">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Not Configured
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {activeConfig ? (
+            <div>
+              <div className="font-medium text-slate-900 text-lg">{activeConfig.name}</div>
+              {activeConfig.description && (
+                <p className="text-sm text-slate-600 mt-2">
+                  {activeConfig.description}
+                </p>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Emergency Protocol */}
-          <Card variant="bordered">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-600">Emergency Protocol</span>
-                {activeEmergency ? (
-                  <Badge variant="success">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Active
-                  </Badge>
-                ) : (
-                  <Badge variant="warning">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Not Configured
-                  </Badge>
-                )}
+              <p className="text-xs text-slate-500 mt-2">
+                This unified configuration handles both dispatch check-in and emergency scenarios.
+              </p>
+              <div className="flex items-center gap-4 mt-4 text-xs text-slate-500">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Updated {new Date(activeConfig.updated_at).toLocaleDateString()}
+                </span>
               </div>
-            </CardHeader>
-            <CardContent>
-              {activeEmergency ? (
-                <div>
-                  <div className="font-medium text-slate-900">{activeEmergency.name}</div>
-                  <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                    {activeEmergency.description || 'No description'}
-                  </p>
-                  <div className="flex items-center gap-4 mt-4 text-xs text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Updated {new Date(activeEmergency.updated_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-slate-500 mb-4">No active configuration</p>
-                  <Link to="/config">
-                    <Button variant="outline" size="sm">Configure Now</Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              <div className="mt-4">
+                <Link to="/config">
+                  <Button variant="outline" size="sm">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Edit Configuration
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <p className="text-slate-600 mb-2">No active configuration</p>
+              <p className="text-sm text-slate-500 mb-4">
+                Create and activate a configuration to start using the AI voice agent.
+              </p>
+              <Link to="/config">
+                <Button variant="primary" size="sm">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Configure Agent
+                </Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Voice Settings Summary */}
       <Card>
@@ -192,7 +158,7 @@ export function DashboardPage() {
         <CardContent>
           {isLoading ? (
             <div className="text-slate-500">Loading...</div>
-          ) : !activeDispatch && !activeEmergency ? (
+          ) : !activeConfig ? (
             <div className="text-center py-6 text-slate-500">
               Configure an agent to see voice settings
             </div>
@@ -201,28 +167,20 @@ export function DashboardPage() {
               <div>
                 <div className="text-sm text-slate-600 mb-1">Backchanneling</div>
                 <div className="font-medium text-slate-900">
-                  {(activeDispatch?.enable_backchanneling ?? activeEmergency?.enable_backchanneling) 
-                    ? 'Enabled' 
-                    : 'Disabled'
-                  }
+                  {activeConfig.enable_backchanneling ? 'Enabled' : 'Disabled'}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-slate-600 mb-1">Filler Words</div>
                 <div className="font-medium text-slate-900">
-                  {(activeDispatch?.enable_filler_words ?? activeEmergency?.enable_filler_words) 
-                    ? 'Enabled' 
-                    : 'Disabled'
-                  }
+                  {activeConfig.enable_filler_words ? 'Enabled' : 'Disabled'}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-slate-600 mb-1">Interruption Sensitivity</div>
                 <div className="font-medium text-slate-900">
                   {(() => {
-                    const sensitivity = activeDispatch?.interruption_sensitivity 
-                      ?? activeEmergency?.interruption_sensitivity 
-                      ?? 0.5;
+                    const sensitivity = activeConfig.interruption_sensitivity ?? 0.5;
                     if (sensitivity <= 0.3) return 'Low';
                     if (sensitivity <= 0.6) return 'Medium';
                     return 'High';

@@ -106,7 +106,7 @@ export interface CallTriggerRequest {
   driver_name: string;
   phone_number?: string | null;
   load_number: string;
-  scenario_type: ScenarioType;
+  scenario_type?: ScenarioType; // Optional - backend derives from active config
   call_type: CallType;
 }
 
