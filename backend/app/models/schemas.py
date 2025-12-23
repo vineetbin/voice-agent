@@ -207,6 +207,9 @@ class StructuredSummaryBase(BaseModel):
     
     # Raw extraction from LLM
     raw_extraction: Optional[dict[str, Any]] = None
+    
+    # Extraction completeness flag
+    partial: bool = False  # True when extraction is incomplete
 
 
 class StructuredSummaryCreate(StructuredSummaryBase):

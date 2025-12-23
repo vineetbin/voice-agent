@@ -20,6 +20,8 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.constants import RetellEventType
 from app.core.state_machine import StateMachine
+from app.models.schemas import ScenarioType
+from app.services.post_processing import get_post_processing_service, PostProcessingService
 from app.webhooks.models import RetellWebhookPayload, WebhookResponse
 from app.webhooks.security import verify_webhook_signature
 
@@ -174,6 +176,32 @@ async def handle_call_ended(
     return {"status": "processed", "call_id": payload.call_id, "internal_call_id": call_id}
 
 
+async def process_transcript_task(
+    call_id: str,
+    transcript: str,
+    scenario_type: ScenarioType,
+    db: Client,
+) -> None:
+    """
+    Background task for processing transcript.
+    
+    This function is called asynchronously to avoid blocking the webhook response.
+    """
+    from uuid import UUID
+    
+    post_processing_service = get_post_processing_service()
+    
+    try:
+        await post_processing_service.process_transcript(
+            call_id=UUID(call_id),
+            transcript=transcript,
+            scenario_type=scenario_type,
+            db=db,
+        )
+    except Exception as e:
+        logger.error(f"Error in background transcript processing for call {call_id}: {e}")
+
+
 async def handle_call_analyzed(
     payload: RetellWebhookPayload,
     db: Client,
@@ -183,7 +211,8 @@ async def handle_call_analyzed(
     Handle call_analyzed event.
     
     - Trigger post-processing to extract structured data
-    - This will be fully implemented in the post-processing commit
+    - Extracts structured information from transcript using OpenAI GPT-4
+    - Falls back to regex extraction if OpenAI fails
     """
     logger.info(f"Call analyzed: {payload.call_id}")
     
@@ -198,19 +227,44 @@ async def handle_call_analyzed(
     
     call = call_response.data[0]
     call_id = call["id"]
+    agent_config_id = call.get("agent_config_id")
+    
+    # Determine scenario_type from agent_config
+    scenario_type = ScenarioType.DISPATCH_CHECKIN  # Default fallback
+    if agent_config_id:
+        config_response = db.table("agent_configs").select("scenario_type").eq(
+            "id", agent_config_id
+        ).execute()
+        if config_response.data:
+            scenario_type_str = config_response.data[0].get("scenario_type")
+            try:
+                scenario_type = ScenarioType(scenario_type_str)
+            except ValueError:
+                logger.warning(f"Unknown scenario_type {scenario_type_str}, defaulting to dispatch_checkin")
     
     # Store analysis data if provided by Retell
     if payload.call_analysis:
         logger.info(f"Retell analysis for call {call_id}: {payload.call_analysis}")
     
-    # TODO: In feat: post-processing, we'll add:
-    # background_tasks.add_task(process_transcript, call_id, payload.transcript)
+    # Trigger post-processing in background
+    if payload.transcript:
+        background_tasks.add_task(
+            process_transcript_task,
+            str(call_id),
+            payload.transcript,
+            scenario_type,
+            db,
+        )
+        logger.info(f"Queued transcript processing for call {call_id} (scenario: {scenario_type.value})")
+    else:
+        logger.warning(f"No transcript available for call {call_id}, skipping post-processing")
     
     return {
         "status": "processed",
         "call_id": payload.call_id,
         "internal_call_id": call_id,
         "analysis_received": payload.call_analysis is not None,
+        "post_processing_queued": payload.transcript is not None,
     }
 
 

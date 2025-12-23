@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS structured_summaries (
     -- Raw extraction data (full JSON from LLM)
     raw_extraction JSONB,
     
+    -- Extraction completeness flag
+    partial BOOLEAN DEFAULT false, -- True when extraction is incomplete
+    
     -- Metadata
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
