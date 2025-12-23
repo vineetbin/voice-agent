@@ -240,3 +240,25 @@ class PaginatedResponse(BaseModel):
     page_size: int
     has_more: bool
 
+
+# =============================================================================
+# Call Trigger Models
+# =============================================================================
+
+class CallTriggerRequest(BaseModel):
+    """Request to trigger a new call from the UI."""
+    driver_name: str = Field(..., min_length=1, max_length=255, description="Driver's name")
+    phone_number: Optional[str] = Field(None, max_length=50, description="Phone number (E.164 format)")
+    load_number: str = Field(..., min_length=1, max_length=100, description="Load reference number")
+    scenario_type: ScenarioType = Field(..., description="Which scenario to use")
+    call_type: CallType = Field(default=CallType.WEB, description="Phone or web call")
+
+
+class CallTriggerResponse(BaseModel):
+    """Response after triggering a call."""
+    call_id: UUID
+    retell_call_id: str
+    status: CallStatus
+    call_type: CallType
+    access_token: Optional[str] = Field(None, description="Web SDK access token (web calls only)")
+

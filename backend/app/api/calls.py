@@ -4,6 +4,7 @@ Provides endpoints for creating, listing, and retrieving call records.
 Calls are created when a test call is triggered and updated as the call progresses.
 """
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -15,8 +16,15 @@ from app.models.schemas import (
     Call,
     CallCreate,
     CallStatus,
+    CallType,
     CallWithDetails,
+    CallTriggerRequest,
+    CallTriggerResponse,
+    ScenarioType,
 )
+from app.services.retell import get_retell_service, RetellService, RetellServiceError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -128,6 +136,142 @@ async def create_call(
         )
     
     return response.data[0]
+
+
+@router.post("/trigger", response_model=CallTriggerResponse)
+async def trigger_call(
+    request: CallTriggerRequest,
+    db: Client = Depends(get_db),
+    retell: RetellService = Depends(get_retell_service),
+) -> CallTriggerResponse:
+    """
+    Trigger a new call to a driver.
+    
+    This is the main endpoint for the "Start Test Call" button.
+    It will:
+    1. Get the active agent configuration for the scenario
+    2. Update the Retell agent with the config's prompt
+    3. Create the call (phone or web)
+    4. Save the call record in our database
+    
+    For web calls, returns an access_token for the Retell Web SDK.
+    """
+    # 1. Get active config for the scenario
+    config_response = db.table("agent_configs").select("*").eq(
+        "scenario_type", request.scenario_type.value
+    ).eq("is_active", True).limit(1).execute()
+    
+    if not config_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No active configuration found for scenario: {request.scenario_type.value}. "
+                   "Please activate a configuration first."
+        )
+    
+    config = config_response.data[0]
+    
+    # 2. Update Retell agent with config's prompt and settings (partial update)
+    # Only updates the specific fields we manage, preserving other Retell settings
+    try:
+        # Replace placeholders in initial message
+        initial_message = config.get("initial_message") or ""
+        initial_message = initial_message.replace("{{driver_name}}", request.driver_name)
+        initial_message = initial_message.replace("{{load_number}}", request.load_number)
+        
+        retell.update_agent(
+            system_prompt=config["system_prompt"],
+            initial_message=initial_message if initial_message else None,
+            enable_backchanneling=config.get("enable_backchanneling"),
+            interruption_sensitivity=config.get("interruption_sensitivity"),
+        )
+    except RetellServiceError as e:
+        logger.error(f"Failed to update Retell agent: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to configure Retell agent: {str(e)}"
+        )
+    
+    # 3. Create call record in our database first
+    call_data = {
+        "driver_name": request.driver_name,
+        "phone_number": request.phone_number,
+        "load_number": request.load_number,
+        "agent_config_id": config["id"],
+        "call_type": request.call_type.value,
+        "status": CallStatus.PENDING.value,
+    }
+    
+    call_response = db.table(CALLS_TABLE).insert(call_data).execute()
+    
+    if not call_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create call record"
+        )
+    
+    internal_call_id = call_response.data[0]["id"]
+    
+    # 4. Create the call via Retell API
+    try:
+        dynamic_variables = {
+            "driver_name": request.driver_name,
+            "load_number": request.load_number,
+        }
+        
+        metadata = {
+            "internal_call_id": internal_call_id,
+            "scenario_type": request.scenario_type.value,
+        }
+        
+        access_token = None
+        
+        if request.call_type == CallType.WEB:
+            # Create web call (for non-USA testing)
+            retell_call = retell.create_web_call(
+                metadata=metadata,
+                dynamic_variables=dynamic_variables,
+            )
+            access_token = retell_call.access_token
+        else:
+            # Create phone call
+            if not request.phone_number:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number is required for phone calls"
+                )
+            retell_call = retell.create_phone_call(
+                to_number=request.phone_number,
+                metadata=metadata,
+                dynamic_variables=dynamic_variables,
+            )
+        
+        # Update our call record with Retell's call ID
+        db.table(CALLS_TABLE).update({
+            "retell_call_id": retell_call.call_id,
+            "status": CallStatus.IN_PROGRESS.value,
+        }).eq("id", internal_call_id).execute()
+        
+        logger.info(f"Triggered {request.call_type.value} call {retell_call.call_id}")
+        
+        return CallTriggerResponse(
+            call_id=internal_call_id,
+            retell_call_id=retell_call.call_id,
+            status=CallStatus.IN_PROGRESS,
+            call_type=request.call_type,
+            access_token=access_token,
+        )
+        
+    except RetellServiceError as e:
+        # Mark call as failed
+        db.table(CALLS_TABLE).update({
+            "status": CallStatus.FAILED.value,
+        }).eq("id", internal_call_id).execute()
+        
+        logger.error(f"Failed to create Retell call: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to create call via Retell: {str(e)}"
+        )
 
 
 @router.patch("/{call_id}/status", response_model=Call)

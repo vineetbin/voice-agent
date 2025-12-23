@@ -6,7 +6,7 @@
 
 import { Routes, Route } from 'react-router-dom';
 import { Layout } from '@/components/layout';
-import { DashboardPage, ConfigurationPage } from '@/pages';
+import { DashboardPage, ConfigurationPage, CallsPage } from '@/pages';
 
 function App() {
   return (
@@ -14,19 +14,9 @@ function App() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/config" element={<ConfigurationPage />} />
-        <Route path="/calls" element={<CallsPlaceholder />} />
+        <Route path="/calls" element={<CallsPage />} />
       </Routes>
     </Layout>
-  );
-}
-
-// Placeholder for calls page (will be implemented in feat: call-ui)
-function CallsPlaceholder() {
-  return (
-    <div className="text-center py-12">
-      <h2 className="text-xl font-semibold text-slate-900">Calls & Testing</h2>
-      <p className="text-slate-500 mt-2">Coming in next commit: feat: call-ui</p>
-    </div>
   );
 }
 

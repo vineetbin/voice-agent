@@ -11,6 +11,8 @@ export type ScenarioType = 'dispatch_checkin' | 'emergency';
 
 export type CallStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
+export type CallType = 'phone' | 'web';
+
 export type CallOutcome = 
   | 'In-Transit Update' 
   | 'Arrival Confirmation' 
@@ -73,9 +75,10 @@ export interface Call {
   retell_call_id: string | null;
   
   // Call context
-  driver_name: string | null;
-  driver_phone: string | null;
-  load_number: string | null;
+  driver_name: string;
+  phone_number: string | null;
+  load_number: string;
+  call_type: CallType;
   
   // Status tracking
   status: CallStatus;
@@ -89,9 +92,30 @@ export interface Call {
 
 export interface CallCreate {
   agent_config_id?: string | null;
-  driver_name?: string | null;
-  driver_phone?: string | null;
-  load_number?: string | null;
+  driver_name: string;
+  phone_number?: string | null;
+  load_number: string;
+  call_type?: CallType;
+}
+
+// =============================================================================
+// Call Trigger (for "Start Test Call" button)
+// =============================================================================
+
+export interface CallTriggerRequest {
+  driver_name: string;
+  phone_number?: string | null;
+  load_number: string;
+  scenario_type: ScenarioType;
+  call_type: CallType;
+}
+
+export interface CallTriggerResponse {
+  call_id: string;
+  retell_call_id: string;
+  status: CallStatus;
+  call_type: CallType;
+  access_token?: string | null; // For web calls only
 }
 
 // =============================================================================
@@ -115,36 +139,35 @@ export interface Transcript {
 // Structured Summaries
 // =============================================================================
 
-// Dispatch Check-in Summary
-export interface DispatchSummary {
-  call_outcome: 'In-Transit Update' | 'Arrival Confirmation';
-  driver_status: 'Driving' | 'Delayed' | 'Arrived' | 'Unloading';
-  current_location: string;
-  eta: string;
-  delay_reason: 'Heavy Traffic' | 'Weather' | 'None' | string;
-  unloading_status: 'In Door 42' | 'Waiting for Lumper' | 'Detention' | 'N/A' | string;
-  pod_reminder_acknowledged: boolean;
-}
-
-// Emergency Escalation Summary
-export interface EmergencySummary {
-  call_outcome: 'Emergency Escalation';
-  emergency_type: 'Accident' | 'Breakdown' | 'Medical' | 'Other';
-  safety_status: string;
-  injury_status: string;
-  emergency_location: string;
-  load_secure: boolean;
-  escalation_status: 'Connected to Human Dispatcher';
-}
-
-export type StructuredSummaryData = DispatchSummary | EmergencySummary;
+export type DriverStatusType = 'Driving' | 'Delayed' | 'Arrived' | 'Unloading';
+export type EmergencyType = 'Accident' | 'Breakdown' | 'Medical' | 'Other';
 
 export interface StructuredSummary {
   id: string;
   call_id: string;
-  summary_data: StructuredSummaryData;
-  extraction_method: 'openai' | 'fallback';
-  confidence_score: number | null;
+  
+  // Common field
+  call_outcome: CallOutcome | null;
+  
+  // Dispatch Check-in fields (Scenario 1)
+  driver_status: DriverStatusType | null;
+  current_location: string | null;
+  eta: string | null;
+  delay_reason: string | null;
+  unloading_status: string | null;
+  pod_reminder_acknowledged: boolean | null;
+  
+  // Emergency fields (Scenario 2)
+  emergency_type: EmergencyType | null;
+  safety_status: string | null;
+  injury_status: string | null;
+  emergency_location: string | null;
+  load_secure: boolean | null;
+  escalation_status: string | null;
+  
+  // Raw extraction from LLM
+  raw_extraction: Record<string, unknown> | null;
+  
   created_at: string;
 }
 
@@ -154,8 +177,7 @@ export interface StructuredSummary {
 
 export interface CallWithDetails extends Call {
   transcript: Transcript | null;
-  summary: StructuredSummary | null;
-  config: AgentConfig | null;
+  structured_summary: StructuredSummary | null;
 }
 
 // =============================================================================
@@ -177,5 +199,20 @@ export interface PromptTemplate {
   scenario_type: ScenarioType;
   system_prompt: string;
   initial_message: string;
+}
+
+// =============================================================================
+// Retell AI Config (from Retell API)
+// =============================================================================
+
+export interface RetellConfig {
+  agent_id: string;
+  agent_name: string | null;
+  llm_id?: string;
+  general_prompt: string | null;
+  begin_message: string | null;
+  enable_backchannel: boolean;
+  interruption_sensitivity: number;
+  boosted_keywords: string[];
 }
 

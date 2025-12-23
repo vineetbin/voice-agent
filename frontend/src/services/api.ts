@@ -11,6 +11,11 @@ import type {
   Call,
   CallCreate,
   CallWithDetails,
+  CallTriggerRequest,
+  CallTriggerResponse,
+  CallStatus,
+  ScenarioType,
+  RetellConfig,
   ApiError,
 } from '@/types';
 
@@ -102,6 +107,22 @@ export const configsApi = {
     const response = await api.patch<AgentConfig>(`/configs/${id}`, { is_active: true });
     return response.data;
   },
+
+  /**
+   * Get current configuration from Retell AI
+   */
+  getRetellConfig: async (): Promise<RetellConfig> => {
+    const response = await api.get<RetellConfig>('/configs/retell/current');
+    return response.data;
+  },
+
+  /**
+   * Sync configuration FROM Retell AI to local database
+   */
+  syncFromRetell: async (scenarioType: ScenarioType): Promise<AgentConfig> => {
+    const response = await api.post<AgentConfig>(`/configs/retell/sync?scenario_type=${scenarioType}`);
+    return response.data;
+  },
 };
 
 // =============================================================================
@@ -110,10 +131,11 @@ export const configsApi = {
 
 export const callsApi = {
   /**
-   * Get all calls
+   * Get all calls with optional status filter
    */
-  getAll: async (): Promise<Call[]> => {
-    const response = await api.get<Call[]>('/calls');
+  getAll: async (status?: CallStatus): Promise<Call[]> => {
+    const params = status ? { status } : {};
+    const response = await api.get<Call[]>('/calls', { params });
     return response.data;
   },
 
@@ -126,7 +148,25 @@ export const callsApi = {
   },
 
   /**
-   * Create a new call record
+   * Get recent completed calls with details
+   */
+  getRecent: async (limit = 10): Promise<CallWithDetails[]> => {
+    const response = await api.get<CallWithDetails[]>('/calls/recent/completed', {
+      params: { limit },
+    });
+    return response.data;
+  },
+
+  /**
+   * Trigger a new call (main endpoint for "Start Test Call")
+   */
+  trigger: async (data: CallTriggerRequest): Promise<CallTriggerResponse> => {
+    const response = await api.post<CallTriggerResponse>('/calls/trigger', data);
+    return response.data;
+  },
+
+  /**
+   * Create a new call record (internal use)
    */
   create: async (data: CallCreate): Promise<Call> => {
     const response = await api.post<Call>('/calls', data);

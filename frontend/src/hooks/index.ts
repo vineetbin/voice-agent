@@ -3,4 +3,6 @@
  */
 
 export * from './useConfigs';
+export * from './useCalls';
+export * from './useRetellWebCall';
 

@@ -1,5 +1,6 @@
 """Application configuration using pydantic-settings."""
 
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from pathlib import Path
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     retell_api_key: str
     retell_agent_id: str
     retell_webhook_secret: str
+    retell_from_number: Optional[str] = None  # Default caller ID for phone calls (E.164 format)
     
     # OpenAI
     openai_api_key: str

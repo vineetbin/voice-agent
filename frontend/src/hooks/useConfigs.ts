@@ -115,3 +115,39 @@ export function useActivateConfig() {
   });
 }
 
+// =============================================================================
+// Retell AI Sync Hooks
+// =============================================================================
+
+export const retellKeys = {
+  config: ['retell', 'config'] as const,
+};
+
+/**
+ * Hook to fetch current configuration from Retell AI
+ */
+export function useRetellConfig() {
+  return useQuery({
+    queryKey: retellKeys.config,
+    queryFn: configsApi.getRetellConfig,
+    staleTime: 30000, // Cache for 30 seconds
+    retry: false, // Don't retry on failure (API key issues, etc.)
+  });
+}
+
+/**
+ * Hook to sync configuration FROM Retell AI to local database
+ */
+export function useSyncFromRetell() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (scenarioType: ScenarioType) => configsApi.syncFromRetell(scenarioType),
+    onSuccess: () => {
+      // Invalidate all config queries to refetch the synced config
+      queryClient.invalidateQueries({ queryKey: configKeys.all });
+      queryClient.invalidateQueries({ queryKey: retellKeys.config });
+    },
+  });
+}
+
