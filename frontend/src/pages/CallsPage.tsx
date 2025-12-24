@@ -25,6 +25,7 @@ import {
   Mic,
   MicOff,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   Card,
@@ -250,37 +251,54 @@ export function CallsPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {recentCalls.map((call) => (
-                    <button
-                      key={call.id}
-                      onClick={() => {
-                        setSelectedCallId(call.id);
-                        setActiveCall(null);
-                      }}
-                      className={`w-full p-3 text-left rounded-lg transition-colors ${
-                        selectedCallId === call.id
-                          ? 'bg-indigo-50 border border-indigo-200'
-                          : 'hover:bg-slate-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-slate-400" />
-                          <span className="font-medium text-slate-900">{call.driver_name}</span>
+                  {recentCalls.map((call) => {
+                    // Check if this call is an emergency (if structured_summary exists)
+                    const isEmergency = 'structured_summary' in call && call.structured_summary?.call_outcome === 'Emergency Escalation';
+                    return (
+                      <button
+                        key={call.id}
+                        onClick={() => {
+                          setSelectedCallId(call.id);
+                          setActiveCall(null);
+                        }}
+                        className={`w-full p-3 text-left rounded-lg transition-colors ${
+                          selectedCallId === call.id
+                            ? isEmergency 
+                              ? 'bg-red-50 border border-red-200'
+                              : 'bg-indigo-50 border border-indigo-200'
+                            : isEmergency
+                              ? 'hover:bg-red-50/50 border border-red-100'
+                              : 'hover:bg-slate-50 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {isEmergency ? (
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                            ) : (
+                              <User className="h-4 w-4 text-slate-400" />
+                            )}
+                            <span className={`font-medium ${isEmergency ? 'text-red-900' : 'text-slate-900'}`}>
+                              {call.driver_name}
+                            </span>
+                            {isEmergency && (
+                              <Badge variant="error" size="sm">Emergency</Badge>
+                            )}
+                          </div>
+                          {getStatusBadge(call.status)}
                         </div>
-                        {getStatusBadge(call.status)}
-                      </div>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <Truck className="h-3 w-3" />
-                          {call.load_number}
-                        </span>
-                        {call.duration_seconds && (
-                          <span>{Math.floor(call.duration_seconds / 60)}:{(call.duration_seconds % 60).toString().padStart(2, '0')}</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                        <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Truck className="h-3 w-3" />
+                            {call.load_number}
+                          </span>
+                          {call.duration_seconds && (
+                            <span>{Math.floor(call.duration_seconds / 60)}:{(call.duration_seconds % 60).toString().padStart(2, '0')}</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -411,8 +429,25 @@ interface CallResultsDisplayProps {
 function CallResultsDisplay({ call }: CallResultsDisplayProps) {
   const [showTranscript, setShowTranscript] = useState(false);
 
+  const isEmergency = call.structured_summary?.call_outcome === 'Emergency Escalation';
+
   return (
     <div className="space-y-4">
+      {/* Emergency Alert Banner */}
+      {isEmergency && (
+        <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="font-semibold text-red-900">Emergency Escalation</div>
+              <div className="text-sm text-red-700 mt-1">
+                This call was escalated due to an emergency situation. Critical information is highlighted below.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Call Metadata */}
       <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg">
         <div>
@@ -443,19 +478,30 @@ function CallResultsDisplay({ call }: CallResultsDisplayProps) {
         <div>
           <h4 className="font-medium text-slate-900 mb-2">Structured Summary</h4>
           <div className="space-y-2">
+            {/* Call Outcome - Always show */}
             <SummaryRow label="Call Outcome" value={call.structured_summary.call_outcome} />
-            <SummaryRow label="Driver Status" value={call.structured_summary.driver_status} />
-            <SummaryRow label="Current Location" value={call.structured_summary.current_location} />
-            <SummaryRow label="ETA" value={call.structured_summary.eta} />
-            <SummaryRow label="Delay Reason" value={call.structured_summary.delay_reason} />
-            <SummaryRow label="Unloading Status" value={call.structured_summary.unloading_status} />
-            <SummaryRow label="POD Acknowledged" value={call.structured_summary.pod_reminder_acknowledged} />
-            <SummaryRow label="Emergency Type" value={call.structured_summary.emergency_type} />
-            <SummaryRow label="Safety Status" value={call.structured_summary.safety_status} />
-            <SummaryRow label="Injury Status" value={call.structured_summary.injury_status} />
-            <SummaryRow label="Emergency Location" value={call.structured_summary.emergency_location} />
-            <SummaryRow label="Load Secure" value={call.structured_summary.load_secure} />
-            <SummaryRow label="Escalation Status" value={call.structured_summary.escalation_status} />
+            
+            {isEmergency ? (
+              /* Emergency Fields - Show only emergency-related fields */
+              <>
+                <SummaryRow label="Emergency Type" value={call.structured_summary.emergency_type} highlight />
+                <SummaryRow label="Safety Status" value={call.structured_summary.safety_status} highlight />
+                <SummaryRow label="Injury Status" value={call.structured_summary.injury_status} highlight />
+                <SummaryRow label="Emergency Location" value={call.structured_summary.emergency_location} highlight />
+                <SummaryRow label="Load Secure" value={call.structured_summary.load_secure} highlight />
+                <SummaryRow label="Escalation Status" value={call.structured_summary.escalation_status} highlight />
+              </>
+            ) : (
+              /* Dispatch Check-in Fields - Show only check-in related fields */
+              <>
+                <SummaryRow label="Driver Status" value={call.structured_summary.driver_status} />
+                <SummaryRow label="Current Location" value={call.structured_summary.current_location} />
+                <SummaryRow label="ETA" value={call.structured_summary.eta} />
+                <SummaryRow label="Delay Reason" value={call.structured_summary.delay_reason} />
+                <SummaryRow label="Unloading Status" value={call.structured_summary.unloading_status} />
+                <SummaryRow label="POD Acknowledged" value={call.structured_summary.pod_reminder_acknowledged} />
+              </>
+            )}
           </div>
         </div>
       ) : call.status === 'completed' ? (
@@ -512,7 +558,15 @@ function CallResultsDisplay({ call }: CallResultsDisplayProps) {
 }
 
 // Helper component for summary rows
-function SummaryRow({ label, value }: { label: string; value: string | boolean | null | undefined }) {
+function SummaryRow({ 
+  label, 
+  value, 
+  highlight = false 
+}: { 
+  label: string; 
+  value: string | boolean | null | undefined; 
+  highlight?: boolean;
+}) {
   // Skip null/undefined values
   if (value === null || value === undefined) {
     return null;
@@ -521,9 +575,9 @@ function SummaryRow({ label, value }: { label: string; value: string | boolean |
   const displayValue = typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value);
   
   return (
-    <div className="flex justify-between py-2 border-b border-slate-100">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className="text-sm font-medium text-slate-900">{displayValue}</span>
+    <div className={`flex justify-between py-2 border-b ${highlight ? 'bg-red-50/50 border-red-100' : 'border-slate-100'}`}>
+      <span className={`text-sm ${highlight ? 'text-red-900 font-medium' : 'text-slate-600'}`}>{label}</span>
+      <span className={`text-sm font-medium ${highlight ? 'text-red-900' : 'text-slate-900'}`}>{displayValue}</span>
     </div>
   );
 }

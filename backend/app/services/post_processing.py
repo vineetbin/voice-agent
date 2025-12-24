@@ -22,8 +22,23 @@ from app.services.openai_service import OpenAIService, OpenAIServiceError, get_o
 from app.services.extraction_schemas import DispatchCheckInExtraction, EmergencyExtraction
 from app.services.fallback_extraction import fill_missing_categorical_fields
 from app.models.schemas import ScenarioType
+from app.core.constants import EMERGENCY_KEYWORDS
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_emergency_from_transcript(transcript: str) -> bool:
+    """
+    Detect if transcript contains emergency indicators.
+    
+    Args:
+        transcript: Call transcript text
+        
+    Returns:
+        True if emergency detected, False otherwise
+    """
+    transcript_lower = transcript.lower()
+    return any(keyword in transcript_lower for keyword in EMERGENCY_KEYWORDS)
 
 
 def _get_required_fields(scenario_type: ScenarioType) -> list[str]:
@@ -99,25 +114,33 @@ class PostProcessingService:
         """
         logger.info(f"Processing transcript for call {call_id} (scenario: {scenario_type.value})")
         
+        # Detect emergency from transcript (override scenario_type if emergency detected)
+        is_emergency = _detect_emergency_from_transcript(transcript)
+        if is_emergency:
+            logger.info(f"Emergency detected in transcript for call {call_id}, using EmergencyExtraction schema")
+            actual_scenario_type = ScenarioType.EMERGENCY
+        else:
+            actual_scenario_type = scenario_type
+        
         extracted_data: Dict[str, Any] = {}
         extraction_method = "unknown"
         is_partial = False
         
         # Step 1: Try OpenAI extraction first
         try:
-            if scenario_type == ScenarioType.EMERGENCY:
+            if actual_scenario_type == ScenarioType.EMERGENCY:
                 schema = EmergencyExtraction
                 extracted_data = self.openai_service.extract_structured_data(
                     transcript=transcript,
                     schema=schema,
-                    scenario_type=scenario_type.value,
+                    scenario_type=ScenarioType.EMERGENCY.value,
                 )
             else:  # DISPATCH_CHECKIN
                 schema = DispatchCheckInExtraction
                 extracted_data = self.openai_service.extract_structured_data(
                     transcript=transcript,
                     schema=schema,
-                    scenario_type=scenario_type.value,
+                    scenario_type=ScenarioType.DISPATCH_CHECKIN.value,
                 )
             
             extraction_method = "openai"
@@ -128,8 +151,8 @@ class PostProcessingService:
             extracted_data = {}
             extraction_method = "failed_openai"
         
-        # Step 2: Validate required fields
-        is_complete = _is_extraction_complete(extracted_data, scenario_type)
+        # Step 2: Validate required fields (use actual_scenario_type)
+        is_complete = _is_extraction_complete(extracted_data, actual_scenario_type)
         
         # Step 3: If missing required fields, run limited regex fallback
         if not is_complete:
@@ -137,7 +160,7 @@ class PostProcessingService:
             extracted_data = fill_missing_categorical_fields(
                 extracted_data=extracted_data,
                 transcript=transcript,
-                scenario_type=scenario_type.value,
+                scenario_type=actual_scenario_type.value,
             )
             
             if extraction_method == "failed_openai":
@@ -146,7 +169,7 @@ class PostProcessingService:
                 extraction_method = "openai_with_regex_fallback"
         
         # Step 4: Check if still incomplete (mark as partial)
-        is_complete = _is_extraction_complete(extracted_data, scenario_type)
+        is_complete = _is_extraction_complete(extracted_data, actual_scenario_type)
         if not is_complete:
             is_partial = True
             logger.info(f"Extraction still incomplete for call {call_id}, marking as partial")
