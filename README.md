@@ -284,7 +284,7 @@ See [AI_USAGE.md](./docs/AI_USAGE.md) for detailed breakdown of AI tools used in
 
 ## Demo
 
-[Optional: Add Loom video link here demonstrating the application in action]
+[Video Demonstration](https://www.loom.com/share/bc13eaff88474bca9710e349015fba77) - Watch the application in action, including agent configuration, call triggering, and results analysis.
 
 ## Future Improvements
 
